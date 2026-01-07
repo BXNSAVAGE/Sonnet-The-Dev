@@ -5,7 +5,20 @@ const WebSocket = require('ws');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const path = require('path');
 
+
+// Serve static files from React build
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// API routes
+app.get('/api/stream', ...);
+app.post('/api/deploy', ...);
+
+// Serve React app for all other routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
