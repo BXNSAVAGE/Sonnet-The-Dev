@@ -262,7 +262,7 @@ const SonnetMemecoinDeployer = () => {
           <div className="text-xs text-gray-500 font-mono">
             <span className="text-gray-600">Analyzed:</span> <span className="text-green-400">{stats.coinsAnalyzed}</span>
           </div>
-          <a className="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition-colors" href="https://solscan.io" target="_blank" rel="noopener noreferrer">
+          <a className="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition-colors" href=" https://solscan.io/account/7e2342mZ1kSeEduup53Cq96C36eeC6LTTnxmd6LGdBbg" target="_blank" rel="noopener noreferrer">
             <Wallet size={16} />
             <span className="font-mono">{stats.walletBalance.toFixed(3)} SOL</span>
           </a>
