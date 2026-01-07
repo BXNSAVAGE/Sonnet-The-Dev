@@ -10,7 +10,7 @@ const SonnetMemecoinDeployer = () => {
     trainingIterations: 4.2,
     activeMeta: null,
     emergingTrends: [],
-    walletBalance: 1240.592,
+    walletBalance: 0,
     creatorFees: 0,
     nextClaim: '04:22:18'
   });
@@ -22,6 +22,23 @@ const SonnetMemecoinDeployer = () => {
   const addLog = (message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString();
     setLogs(prev => [...prev, { timestamp, message, type }].slice(-150));
+  };
+
+  const fetchWalletBalance = async () => {
+    try {
+      const response = await fetch('/api/wallet-balance');
+      const data = await response.json();
+      
+      if (data && typeof data.balance === 'number') {
+        setStats(prev => ({ 
+          ...prev, 
+          walletBalance: data.balance
+        }));
+      }
+    } catch (error) {
+      console.error('Wallet balance fetch error:', error);
+      addLog('⚠️ Could not fetch wallet balance', 'warning');
+    }
   };
 
   const fetchStreamData = async () => {
@@ -38,14 +55,18 @@ const SonnetMemecoinDeployer = () => {
         }));
         
         if (data.length > oldLength && data[0] && isInitialized) {
-          addLog(`📊 Detected: ${data[0].symbol} | Action: ${data[0].action} | Chain: ${data[0].chain}`, 'success');
+          // Use name, symbol, or mint as fallback
+          const tokenName = data[0].name || data[0].symbol || data[0].mint?.substring(0, 8) || 'UNKNOWN';
+          const tokenSymbol = data[0].symbol || tokenName;
+          
+          addLog(`📊 Detected: ${tokenSymbol} | Action: ${data[0].action} | Chain: ${data[0].chain}`, 'success');
           
           // Add extra activity logs
           if (Math.random() > 0.7) {
-            setTimeout(() => addLog(`🔍 Analyzing ${data[0].symbol} tokenomics...`, 'info'), 500);
+            setTimeout(() => addLog(`🔍 Analyzing ${tokenSymbol} tokenomics...`, 'info'), 500);
           }
           if (Math.random() > 0.8) {
-            setTimeout(() => addLog(`📈 ${data[0].symbol} added to pattern database`, 'info'), 1000);
+            setTimeout(() => addLog(`📈 ${tokenSymbol} added to pattern database`, 'info'), 1000);
           }
         }
       }
@@ -150,14 +171,15 @@ const SonnetMemecoinDeployer = () => {
       setStats(prev => ({ 
         ...prev, 
         tokensCreated: prev.tokensCreated + 1,
-        creatorFees: prev.creatorFees + feesEarned,
-        walletBalance: prev.walletBalance - deployCost + (feesEarned / 1000)
+        creatorFees: prev.creatorFees + feesEarned
       }));
       
       addLog(`✅ ${symbol} DEPLOYED successfully!`, 'success');
       addLog(`📍 Contract: ${newCoin.address}`, 'success');
       addLog(`💰 Deployment cost: ${deployCost} SOL | Fees earned: ${feesEarned} SOL`, 'success');
-      addLog(`💼 Wallet balance: ${(stats.walletBalance - deployCost + (feesEarned / 1000)).toFixed(3)} SOL`, 'info');
+      
+      // Refresh wallet balance after deployment
+      fetchWalletBalance();
     }, 1800);
   };
 
@@ -169,6 +191,8 @@ const SonnetMemecoinDeployer = () => {
     addLog('🌐 Connecting to Solana RPC...', 'info');
     
     fetchStreamData();
+    fetchWalletBalance();
+    
     setTimeout(() => {
       addLog('✅ WebSocket connected successfully', 'success');
       addLog('✅ Solana RPC online', 'success');
@@ -183,6 +207,10 @@ const SonnetMemecoinDeployer = () => {
         addLog(`📡 Scanning blockchain for new tokens...`, 'info');
       }
     }, 2000);
+    
+    const walletInterval = setInterval(() => {
+      fetchWalletBalance();
+    }, 10000);
     
     const metaInterval = setInterval(() => {
       analyzeMeta();
@@ -228,6 +256,7 @@ const SonnetMemecoinDeployer = () => {
     
     return () => {
       clearInterval(streamInterval);
+      clearInterval(walletInterval);
       clearInterval(metaInterval);
       clearInterval(deployInterval);
       clearInterval(activityInterval);
@@ -262,7 +291,7 @@ const SonnetMemecoinDeployer = () => {
           <div className="text-xs text-gray-500 font-mono">
             <span className="text-gray-600">Analyzed:</span> <span className="text-green-400">{stats.coinsAnalyzed}</span>
           </div>
-          <a className="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition-colors" href=" https://solscan.io/account/7e2342mZ1kSeEduup53Cq96C36eeC6LTTnxmd6LGdBbg" target="_blank" rel="noopener noreferrer">
+          <a className="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 transition-colors" href="https://solscan.io/account/7e2342mZ1kSeEduup53Cq96C36eeC6LTTnxmd6LGdBbg" target="_blank" rel="noopener noreferrer">
             <Wallet size={16} />
             <span className="font-mono">{stats.walletBalance.toFixed(3)} SOL</span>
           </a>
@@ -283,18 +312,21 @@ const SonnetMemecoinDeployer = () => {
                 {streamData.length === 0 ? (
                   <div className="text-gray-600 text-center py-4">Connecting to stream...</div>
                 ) : (
-                  streamData.map((t, i) => (
-                    <div key={i} className="flex gap-2 text-gray-600 border-b border-[#30363d] pb-1 hover:bg-[#0d1117] transition-colors">
-                      <span className="text-gray-700">[{t.time}]</span>
-                      <span className="text-gray-300 font-bold">{t.symbol}</span>
-                      <span className={`${
-                        t.action === 'MINT' || t.action === 'create' ? 'text-green-500' :
-                        t.action === 'BURN' ? 'text-red-400' :
-                        'text-blue-400'
-                      }`}>{t.action}</span>
-                      <span className="ml-auto opacity-50">{t.chain}</span>
-                    </div>
-                  ))
+                  streamData.map((t, i) => {
+                    const displayName = t.name || t.symbol || (t.mint ? t.mint.substring(0, 8) : 'UNKNOWN');
+                    return (
+                      <div key={i} className="flex gap-2 text-gray-600 border-b border-[#30363d] pb-1 hover:bg-[#0d1117] transition-colors">
+                        <span className="text-gray-700">[{t.time}]</span>
+                        <span className="text-gray-300 font-bold">{displayName}</span>
+                        <span className={`${
+                          t.action === 'MINT' || t.action === 'create' ? 'text-green-500' :
+                          t.action === 'BURN' ? 'text-red-400' :
+                          'text-blue-400'
+                        }`}>{t.action}</span>
+                        <span className="ml-auto opacity-50">{t.chain}</span>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
