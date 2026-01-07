@@ -14,12 +14,13 @@ const SonnetMemecoinDeployer = () => {
     nextClaim: '04:22:18'
   });
   const [deployedCoins, setDeployedCoins] = useState([]);
+  const [isInitialized, setIsInitialized] = useState(false);
   
   const logsEndRef = useRef(null);
 
   const addLog = (message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, { timestamp, message, type }].slice(-50));
+    setLogs(prev => [...prev, { timestamp, message, type }].slice(-100));
   };
 
   const fetchStreamData = async () => {
@@ -35,8 +36,8 @@ const SonnetMemecoinDeployer = () => {
           coinsAnalyzed: prev.coinsAnalyzed + Math.max(0, data.length - oldLength)
         }));
         
-        if (data.length > oldLength && data[0]) {
-          addLog(`📊 New token: ${data[0].symbol} [${data[0].action}]`, 'success');
+        if (data.length > oldLength && data[0] && isInitialized) {
+          addLog(`📊 ${data[0].symbol} detected [${data[0].action}]`, 'success');
         }
       }
     } catch (error) {
@@ -50,6 +51,10 @@ const SonnetMemecoinDeployer = () => {
       const { trend } = await response.json();
       
       if (trend && trend.confidence > 0) {
+        // Boost confidence for deployment (multiply by 1.3 to deploy more often)
+        const boostedConfidence = Math.min(trend.confidence * 1.3, 95);
+        const boostedTrend = { ...trend, confidence: boostedConfidence };
+        
         const isNew = !stats.activeMeta || stats.activeMeta.theme !== trend.theme;
         
         setStats(prev => {
@@ -57,26 +62,26 @@ const SonnetMemecoinDeployer = () => {
           const existingIndex = newTrends.findIndex(t => t.theme === trend.theme);
           
           if (existingIndex >= 0) {
-            newTrends[existingIndex] = trend;
+            newTrends[existingIndex] = boostedTrend;
           } else {
-            newTrends.push(trend);
+            newTrends.push(boostedTrend);
           }
           
           newTrends.sort((a, b) => b.confidence - a.confidence);
           
           return {
             ...prev,
-            activeMeta: trend,
+            activeMeta: boostedTrend,
             emergingTrends: newTrends.slice(0, 3)
           };
         });
         
-        if (isNew) {
-          addLog(`🎯 Meta shift detected: ${trend.theme} (${trend.confidence.toFixed(1)}%)`, 'success');
+        if (isNew && isInitialized) {
+          addLog(`🎯 Meta shift: ${trend.theme} (${boostedConfidence.toFixed(1)}%)`, 'success');
         }
         
-        if (trend.confidence > 75) {
-          addLog(`⚡ HIGH CONFIDENCE: ${trend.theme} - Auto-deploy enabled`, 'warning');
+        if (boostedConfidence > 65 && isInitialized) {
+          addLog(`⚡ HIGH CONFIDENCE: ${trend.theme} - Ready to deploy`, 'warning');
         }
       }
     } catch (error) {
@@ -85,20 +90,20 @@ const SonnetMemecoinDeployer = () => {
   };
 
   const simulateDeployment = () => {
-    if (!stats.activeMeta || stats.activeMeta.confidence < 70) return;
+    if (!stats.activeMeta || stats.activeMeta.confidence < 60) return;
 
     const tokenNames = {
-      'AI': ['NeuralDog', 'CyberCat', 'BotPepe', 'AIFrog', 'CodeMonkey', 'DataDoge'],
-      'ANIMALS': ['MegaDoge', 'SuperShib', 'BasedFrog', 'AlphaCat', 'SigmaWolf', 'LamboPepe'],
-      'MEME': ['MoonWojak', 'ChadCoin', 'BasedToken', 'GigaPepe', 'DiamondHands', 'ToTheMoon'],
-      'TECH': ['QuantumDog', 'Web3Pepe', 'MetaCat', 'CryptoFrog', 'BlockchainBull', 'DeFiDoge']
+      'AI': ['NeuralDog', 'CyberCat', 'BotPepe', 'AIFrog', 'CodeMonkey', 'DataDoge', 'SmartPepe', 'QuantumCat'],
+      'ANIMALS': ['MegaDoge', 'SuperShib', 'BasedFrog', 'AlphaCat', 'SigmaWolf', 'LamboPepe', 'DiamondDog', 'MoonCat'],
+      'MEME': ['MoonWojak', 'ChadCoin', 'BasedToken', 'GigaPepe', 'DiamondHands', 'ToTheMoon', 'StonksDoge', 'ApeToken'],
+      'TECH': ['QuantumDog', 'Web3Pepe', 'MetaCat', 'CryptoFrog', 'BlockchainBull', 'DeFiDoge', 'ChainCat', 'ProtoколPepe']
     };
 
     const names = tokenNames[stats.activeMeta.theme] || ['TrendToken'];
     const name = names[Math.floor(Math.random() * names.length)];
-    const symbol = name.substring(0, 4).toUpperCase() + Math.floor(Math.random() * 99);
+    const symbol = name.substring(0, 4).toUpperCase() + Math.floor(Math.random() * 999);
 
-    addLog(`🚀 Auto-deploying ${symbol} based on ${stats.activeMeta.theme} trend`, 'info');
+    addLog(`🚀 Deploying ${symbol} (${stats.activeMeta.theme} meta)`, 'info');
 
     const newCoin = {
       name,
@@ -110,17 +115,19 @@ const SonnetMemecoinDeployer = () => {
       deployTime: Date.now()
     };
 
-    setDeployedCoins(prev => [newCoin, ...prev].slice(0, 10));
+    setDeployedCoins(prev => [newCoin, ...prev].slice(0, 15));
     setStats(prev => ({ 
       ...prev, 
       tokensCreated: prev.tokensCreated + 1,
-      creatorFees: prev.creatorFees + Math.floor(Math.random() * 100) + 10
+      creatorFees: prev.creatorFees + Math.floor(Math.random() * 150) + 20
     }));
     
-    addLog(`✅ ${symbol} deployed successfully at ${newCoin.address}`, 'success');
+    addLog(`✅ ${symbol} live at ${newCoin.address}`, 'success');
   };
 
   useEffect(() => {
+    if (isInitialized) return; // Prevent re-initialization
+    
     addLog('⚙️ System initializing...', 'info');
     addLog('🔌 Connecting to PumpPortal WebSocket...', 'info');
     
@@ -128,20 +135,21 @@ const SonnetMemecoinDeployer = () => {
     setTimeout(() => {
       addLog('✅ Connected to live token stream', 'success');
       analyzeMeta();
+      setIsInitialized(true);
     }, 1000);
     
-    // Fetch stream every 2 seconds for near real-time updates
+    // Fetch stream every 2 seconds
     const streamInterval = setInterval(fetchStreamData, 2000);
     
-    // Analyze meta every 10 seconds for faster trend detection
-    const metaInterval = setInterval(analyzeMeta, 10000);
+    // Analyze meta every 8 seconds (faster)
+    const metaInterval = setInterval(analyzeMeta, 8000);
     
-    // Auto-deploy every 45 seconds if high confidence
+    // Auto-deploy every 30 seconds if confidence > 60% (more frequent)
     const deployInterval = setInterval(() => {
-      if (stats.activeMeta && stats.activeMeta.confidence > 70) {
+      if (stats.activeMeta && stats.activeMeta.confidence > 60) {
         simulateDeployment();
       }
-    }, 45000);
+    }, 30000);
     
     // Countdown timer
     const timer = setInterval(() => {
@@ -162,7 +170,7 @@ const SonnetMemecoinDeployer = () => {
       clearInterval(deployInterval);
       clearInterval(timer);
     };
-  }, [stats.activeMeta]);
+  }, []);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -269,18 +277,18 @@ const SonnetMemecoinDeployer = () => {
               {stats.activeMeta ? (
                 <div className="space-y-4">
                   <div className={`border rounded-lg p-4 ${
-                    stats.activeMeta.confidence > 75 ? 'border-green-500 bg-green-950/30' :
+                    stats.activeMeta.confidence > 70 ? 'border-green-500 bg-green-950/30' :
                     stats.activeMeta.confidence > 50 ? 'border-yellow-500 bg-yellow-950/20' :
                     'border-gray-700 bg-gray-800/20'
                   }`}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-xs font-mono mb-1 flex items-center gap-2">
-                        {stats.activeMeta.confidence > 75 ? (
-                          <><span className="text-green-400">⚡ HIGH CONFIDENCE</span></>
+                        {stats.activeMeta.confidence > 70 ? (
+                          <><span className="text-green-400">⚡ DEPLOYING</span></>
                         ) : stats.activeMeta.confidence > 50 ? (
-                          <><span className="text-yellow-400">📈 EMERGING TREND</span></>
+                          <><span className="text-yellow-400">📈 EMERGING</span></>
                         ) : (
-                          <><span className="text-gray-400">🔍 LOW SIGNAL</span></>
+                          <><span className="text-gray-400">🔍 MONITORING</span></>
                         )}
                       </div>
                       <div className="text-xs text-gray-500">{stats.activeMeta.count} matches</div>
@@ -290,7 +298,7 @@ const SonnetMemecoinDeployer = () => {
                       <div className="flex-1 h-2 bg-gray-900 rounded-full overflow-hidden">
                         <div 
                           className={`h-full transition-all duration-1000 ${
-                            stats.activeMeta.confidence > 75 ? 'bg-green-500' :
+                            stats.activeMeta.confidence > 70 ? 'bg-green-500' :
                             stats.activeMeta.confidence > 50 ? 'bg-yellow-500' :
                             'bg-gray-500'
                           }`}
@@ -368,8 +376,8 @@ const SonnetMemecoinDeployer = () => {
               <div className="flex-1 overflow-y-auto p-3 space-y-3">
                 {deployedCoins.length === 0 ? (
                   <div className="text-gray-600 text-center py-8 text-sm">
-                    <div className="mb-2">⏳ Waiting for high-confidence signal</div>
-                    <div className="text-xs text-gray-700">Auto-deploy at 70%+ confidence</div>
+                    <div className="mb-2">⏳ Waiting for signal</div>
+                    <div className="text-xs text-gray-700">Auto-deploy at 60%+ confidence</div>
                   </div>
                 ) : (
                   deployedCoins.map((c, i) => (
