@@ -26,13 +26,27 @@ const SonnetMemecoinDeployer = () => {
 
   const fetchWalletBalance = async () => {
     try {
-      const response = await fetch('/api/wallet-balance');
+      const walletAddress = '7e2342mZ1kSeEduup53Cq96C36eeC6LTTnxmd6LGdBbg';
+      
+      // Fetch balance directly from Solana RPC
+      const response = await fetch('https://api.mainnet-beta.solana.com', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getBalance',
+          params: [walletAddress]
+        })
+      });
+      
       const data = await response.json();
       
-      if (data && typeof data.balance === 'number') {
+      if (data.result && typeof data.result.value === 'number') {
+        const balance = data.result.value / 1000000000; // Convert lamports to SOL
         setStats(prev => ({ 
           ...prev, 
-          walletBalance: data.balance
+          walletBalance: balance
         }));
       }
     } catch (error) {
