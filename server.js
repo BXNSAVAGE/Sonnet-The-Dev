@@ -98,6 +98,33 @@ app.post('/api/analyze', async (req, res) => {
   }
 });
 
+// Add this endpoint to your server.js
+app.get('/api/wallet-balance', async (req, res) => {
+  try {
+    const walletAddress = process.env.WALLET_ADDRESS || '7e2342mZ1kSeEduup53Cq96C36eeC6LTTnxmd6LGdBbg';
+    
+    // Fetch balance from Solana
+    const response = await fetch(`https://api.mainnet-beta.solana.com`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'getBalance',
+        params: [walletAddress]
+      })
+    });
+    
+    const data = await response.json();
+    const balance = data.result?.value ? data.result.value / 1e9 : 0; // Convert lamports to SOL
+    
+    res.json({ balance });
+  } catch (error) {
+    console.error('Wallet balance error:', error);
+    res.status(500).json({ error: 'Failed to fetch balance' });
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
