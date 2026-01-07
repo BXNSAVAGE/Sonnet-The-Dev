@@ -3,6 +3,7 @@ import cors from 'cors';
 import { WebSocket } from 'ws';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,20 +18,65 @@ app.use(express.static(path.join(__dirname, 'dist')));
 const PUMPPORTAL_API_KEY = process.env.PUMPPORTAL_API_KEY;
 const WALLET_PUBLIC_KEY = process.env.WALLET_PUBLIC_KEY || '7e2342mZ1kSeEduup53Cq96C36eeC6LTTnxmd6LGdBbg';
 
+// Persistent data file
+const DATA_FILE = path.join(__dirname, 'persistent-data.json');
+
+// Load persistent data on startup
+let persistentData = {
+  deploymentHistory: [],
+  totalFeesEarned: 0,
+  tokensDeployed: 0,
+  logs: [],
+  coinsAnalyzed: 0,
+  startTime: Date.now()
+};
+
+// Load data from file if it exists
+try {
+  if (fs.existsSync(DATA_FILE)) {
+    const fileData = fs.readFileSync(DATA_FILE, 'utf8');
+    persistentData = { ...persistentData, ...JSON.parse(fileData) };
+    console.log('✅ Loaded persistent data from disk');
+  }
+} catch (error) {
+  console.log('⚠️ No persistent data found, starting fresh');
+}
+
+// Save data to disk
+function saveData() {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(persistentData, null, 2));
+  } catch (error) {
+    console.error('❌ Failed to save persistent data:', error);
+  }
+}
+
+// Auto-save every 30 seconds
+setInterval(saveData, 30000);
+
 let streamData = [];
 let wsConnection = null;
-let deploymentHistory = [];
-let totalFeesEarned = 0;
-let tokensDeployed = 0;
 let recentTokenImages = {}; // Store recent token images by theme
+
+// Add log entry
+function addLog(message, type = 'info') {
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    message,
+    type
+  };
+  persistentData.logs.unshift(logEntry);
+  persistentData.logs = persistentData.logs.slice(0, 500); // Keep last 500 logs
+  console.log(`[${type.toUpperCase()}] ${message}`);
+}
 
 // PumpPortal WebSocket for token stream
 function connectToPumpPortal() {
-  console.log('Connecting to PumpPortal...');
+  addLog('Connecting to PumpPortal...', 'info');
   wsConnection = new WebSocket('wss://pumpportal.fun/api/data');
   
   wsConnection.on('open', () => {
-    console.log('✓ Connected to PumpPortal');
+    addLog('✓ Connected to PumpPortal', 'success');
     wsConnection.send(JSON.stringify({ method: "subscribeNewToken" }));
     wsConnection.send(JSON.stringify({ method: "subscribeTokenTrade", keys: ["pump"] }));
   });
@@ -45,12 +91,13 @@ function connectToPumpPortal() {
         time: new Date().toLocaleTimeString(),
         mint: message.mint,
         name: message.name,
-        uri: message.uri, // Token metadata URI
-        image: message.image // Direct image if available
+        uri: message.uri,
+        image: message.image
       };
       
       streamData.unshift(formattedToken);
       streamData = streamData.slice(0, 100);
+      persistentData.coinsAnalyzed++;
       
       // Store images by theme for later use
       if (formattedToken.uri || formattedToken.image) {
@@ -77,19 +124,17 @@ function connectToPumpPortal() {
           recentTokenImages['TECH'] = recentTokenImages['TECH'].slice(0, 10);
         }
       }
-      
-      console.log('New token:', formattedToken.symbol);
     } catch (error) {
       console.error('Parse error:', error);
     }
   });
 
   wsConnection.on('error', (error) => {
-    console.error('WebSocket error:', error);
+    addLog('WebSocket error: ' + error.message, 'error');
   });
 
   wsConnection.on('close', () => {
-    console.log('Disconnected, reconnecting in 5s...');
+    addLog('Disconnected from PumpPortal, reconnecting in 5s...', 'warning');
     setTimeout(connectToPumpPortal, 5000);
   });
 }
@@ -107,30 +152,28 @@ function getRandomImageForTheme(theme) {
 // Deploy token using PumpPortal Lightning API
 async function deployToken(tokenData) {
   if (!PUMPPORTAL_API_KEY) {
-    console.error('❌ No PumpPortal API key configured!');
+    addLog('❌ No PumpPortal API key configured!', 'error');
     return null;
   }
 
   try {
-    console.log(`🚀 Deploying token: ${tokenData.symbol} (${tokenData.theme} meta)`);
+    addLog(`🚀 Deploying token: ${tokenData.symbol} (${tokenData.theme} meta)`, 'warning');
 
     const imageUri = getRandomImageForTheme(tokenData.theme);
     
     if (!imageUri) {
-      console.log(`⚠️ No image available for ${tokenData.theme} theme yet, skipping deployment`);
+      addLog(`⚠️ No image available for ${tokenData.theme} theme yet, skipping deployment`, 'warning');
       return null;
     }
 
-    // Create token metadata
     const tokenMetadata = {
       name: "Deployed By Sonnet The Dev",
       symbol: tokenData.symbol,
-      uri: imageUri // Use the image from a similar meta token
+      uri: imageUri
     };
 
-    console.log(`📸 Using image URI: ${imageUri}`);
+    addLog(`📸 Using image URI: ${imageUri}`, 'info');
 
-    // Send the create transaction with dev buy
     const response = await fetch(`https://pumpportal.fun/api/trade?api-key=${PUMPPORTAL_API_KEY}`, {
       method: 'POST',
       headers: {
@@ -140,9 +183,9 @@ async function deployToken(tokenData) {
         publicKey: WALLET_PUBLIC_KEY,
         action: "create",
         tokenMetadata: tokenMetadata,
-        mint: "new", // Generate new mint
+        mint: "new",
         denominatedInSol: "true",
-        amount: 0.0000001, // Dev buy of 0.0000001 SOL
+        amount: 0.0000001,
         slippage: 10,
         priorityFee: 0.0001,
         pool: "pump"
@@ -152,7 +195,7 @@ async function deployToken(tokenData) {
     const result = await response.json();
 
     if (result.signature) {
-      console.log(`✅ Token deployed! Signature: ${result.signature}`);
+      addLog(`✅ Token deployed! Signature: ${result.signature}`, 'success');
       
       const deployment = {
         name: "Deployed By Sonnet The Dev",
@@ -164,17 +207,19 @@ async function deployToken(tokenData) {
         imageUri: imageUri
       };
 
-      deploymentHistory.unshift(deployment);
-      deploymentHistory = deploymentHistory.slice(0, 15);
-      tokensDeployed++;
+      persistentData.deploymentHistory.unshift(deployment);
+      persistentData.deploymentHistory = persistentData.deploymentHistory.slice(0, 15);
+      persistentData.tokensDeployed++;
+      
+      saveData();
 
       return deployment;
     } else {
-      console.error('❌ Deployment failed:', result);
+      addLog('❌ Deployment failed: ' + JSON.stringify(result), 'error');
       return null;
     }
   } catch (error) {
-    console.error('❌ Deployment error:', error);
+    addLog('❌ Deployment error: ' + error.message, 'error');
     return null;
   }
 }
@@ -182,12 +227,11 @@ async function deployToken(tokenData) {
 // Claim creator fees using PumpPortal API
 async function claimCreatorFees() {
   if (!PUMPPORTAL_API_KEY) {
-    console.error('❌ No PumpPortal API key configured!');
     return;
   }
 
   try {
-    console.log('💰 Attempting to claim creator fees...');
+    addLog('💰 Attempting to claim creator fees...', 'info');
 
     const response = await fetch(`https://pumpportal.fun/api/claim-fees?api-key=${PUMPPORTAL_API_KEY}`, {
       method: 'POST',
@@ -202,21 +246,22 @@ async function claimCreatorFees() {
     const result = await response.json();
 
     if (result.signature) {
-      console.log(`✅ Fees claimed! Signature: ${result.signature}`);
+      addLog(`✅ Fees claimed! Signature: ${result.signature}`, 'success');
       
       if (result.amount) {
         const amount = parseFloat(result.amount);
-        totalFeesEarned += amount;
-        console.log(`💰 Claimed: ${amount} SOL (Total: ${totalFeesEarned} SOL)`);
+        persistentData.totalFeesEarned += amount;
+        addLog(`💰 Claimed: ${amount} SOL (Total: ${persistentData.totalFeesEarned} SOL)`, 'success');
+        saveData();
       }
 
       return result;
     } else {
-      console.log('ℹ️ No fees available to claim or already claimed');
+      addLog('ℹ️ No fees available to claim', 'info');
       return null;
     }
   } catch (error) {
-    console.error('❌ Fee claiming error:', error);
+    addLog('❌ Fee claiming error: ' + error.message, 'error');
     return null;
   }
 }
@@ -255,15 +300,13 @@ async function checkAndDeploy() {
     const topTrend = sortedTrends[0];
 
     if (topTrend && topTrend.confidence > 60) {
-      console.log(`🎯 High confidence detected: ${topTrend.theme} @ ${topTrend.confidence.toFixed(1)}%`);
+      addLog(`🎯 High confidence detected: ${topTrend.theme} @ ${topTrend.confidence.toFixed(1)}%`, 'info');
 
-      // Check if we have images for this theme
       if (!recentTokenImages[topTrend.theme] || recentTokenImages[topTrend.theme].length === 0) {
-        console.log(`⏸️ Waiting for ${topTrend.theme} images to be collected...`);
+        addLog(`⏸️ Waiting for ${topTrend.theme} images to be collected...`, 'info');
         return;
       }
 
-      // Generate ticker based on theme
       const themeSymbols = {
         'AI': ['AI', 'BOT', 'GPT', 'CYBER', 'NEURAL', 'SMART'],
         'ANIMALS': ['DOGE', 'CAT', 'FROG', 'PEPE', 'SHIB', 'WOLF'],
@@ -283,7 +326,7 @@ async function checkAndDeploy() {
       await deployToken(tokenData);
     }
   } catch (error) {
-    console.error('Auto-deploy check error:', error);
+    addLog('Auto-deploy check error: ' + error.message, 'error');
   }
 }
 
@@ -349,25 +392,26 @@ app.get('/api/wallet-balance', async (req, res) => {
     res.json({ balance });
   } catch (error) {
     console.error('Wallet balance error:', error);
-    res.status(500).json({ error: 'Failed to fetch balance' });
+    res.status(500).json({ balance: 0, error: 'Failed to fetch balance' });
   }
 });
 
 app.get('/api/deployments', (req, res) => {
   res.json({
-    deployments: deploymentHistory,
+    deployments: persistentData.deploymentHistory,
     stats: {
-      tokensDeployed,
-      totalFeesEarned
+      tokensDeployed: persistentData.tokensDeployed,
+      totalFeesEarned: persistentData.totalFeesEarned
     }
   });
 });
 
 app.get('/api/stats', (req, res) => {
   res.json({
-    tokensDeployed,
-    totalFeesEarned,
-    coinsAnalyzed: streamData.length,
+    tokensDeployed: persistentData.tokensDeployed,
+    totalFeesEarned: persistentData.totalFeesEarned,
+    coinsAnalyzed: persistentData.coinsAnalyzed,
+    uptime: Date.now() - persistentData.startTime,
     imagesCollected: {
       AI: recentTokenImages['AI']?.length || 0,
       ANIMALS: recentTokenImages['ANIMALS']?.length || 0,
@@ -377,12 +421,19 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
+app.get('/api/logs', (req, res) => {
+  res.json({ logs: persistentData.logs.slice(0, 150) });
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // Start services
 connectToPumpPortal();
+addLog('🚀 Sonnet The Dev starting...', 'info');
+addLog(`💼 Wallet: ${WALLET_PUBLIC_KEY}`, 'info');
+addLog(`⚡ Auto-deploy: ${PUMPPORTAL_API_KEY ? 'ENABLED' : 'DISABLED'}`, PUMPPORTAL_API_KEY ? 'success' : 'warning');
 
 // Claim creator fees every 1 minute
 setInterval(() => {
@@ -395,8 +446,5 @@ setInterval(() => {
 }, 30000);
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`💼 Wallet: ${WALLET_PUBLIC_KEY}`);
-  console.log(`⚡ Auto-deploy: ${PUMPPORTAL_API_KEY ? 'ENABLED' : 'DISABLED (set PUMPPORTAL_API_KEY)'}`);
-  console.log(`💰 Auto-claim fees: Every 60 seconds`);
+  addLog(`🚀 Server running on port ${PORT}`, 'success');
 });
