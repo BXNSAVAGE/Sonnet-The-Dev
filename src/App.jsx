@@ -55,6 +55,26 @@ const SonnetMemecoinDeployer = () => {
     }
   };
 
+  const fetchDeployments = async () => {
+    try {
+      const response = await fetch('/api/deployments');
+      const data = await response.json();
+      
+      if (data && data.deployments) {
+        setDeployedCoins(data.deployments);
+        if (data.stats) {
+          setStats(prev => ({
+            ...prev,
+            tokensCreated: data.stats.tokensDeployed || prev.tokensCreated,
+            creatorFees: data.stats.totalFeesEarned || prev.creatorFees
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Deployments fetch error:', error);
+    }
+  };
+
   const fetchStreamData = async () => {
     try {
       const response = await fetch('/api/stream');
@@ -206,6 +226,7 @@ const SonnetMemecoinDeployer = () => {
     
     fetchStreamData();
     fetchWalletBalance();
+    fetchDeployments();
     
     setTimeout(() => {
       addLog('✅ WebSocket connected successfully', 'success');
@@ -221,6 +242,10 @@ const SonnetMemecoinDeployer = () => {
         addLog(`📡 Scanning blockchain for new tokens...`, 'info');
       }
     }, 2000);
+    
+    const deploymentsInterval = setInterval(() => {
+      fetchDeployments();
+    }, 5000);
     
     const walletInterval = setInterval(() => {
       fetchWalletBalance();
@@ -270,6 +295,7 @@ const SonnetMemecoinDeployer = () => {
     
     return () => {
       clearInterval(streamInterval);
+      clearInterval(deploymentsInterval);
       clearInterval(walletInterval);
       clearInterval(metaInterval);
       clearInterval(deployInterval);
@@ -501,18 +527,18 @@ const SonnetMemecoinDeployer = () => {
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2">
                           <div className="h-8 w-8 rounded bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
-                            {c.symbol.substring(1, 3)}
+                            {c.symbol.substring(0, 2)}
                           </div>
                           <div>
                             <div className="text-sm font-bold text-white">{c.symbol}</div>
-                            <div className="text-[10px] text-gray-500 font-mono">{c.address}</div>
+                            <div className="text-[10px] text-gray-500 font-mono">{c.mint || c.address}</div>
                           </div>
                         </div>
-                        <span className="text-green-400 text-xs font-bold bg-green-950/30 px-2 py-0.5 rounded">+{c.change}%</span>
+                        <span className="text-green-400 text-xs font-bold bg-green-950/30 px-2 py-0.5 rounded">LIVE</span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-[10px] text-gray-600 border-t border-[#30363d] pt-2">
-                        <div>MC: <span className="text-gray-300 font-mono">{(c.marketCap / 1000000).toFixed(2)}M</span></div>
-                        <div className="text-right">Vol: <span className="text-gray-300 font-mono">{(c.volume / 1000).toFixed(0)}K</span></div>
+                        <div>Theme: <span className="text-gray-300 font-mono">{c.theme || 'N/A'}</span></div>
+                        <div className="text-right">Time: <span className="text-gray-300 font-mono">{new Date(c.timestamp || c.deployTime).toLocaleTimeString()}</span></div>
                       </div>
                     </div>
                   ))
